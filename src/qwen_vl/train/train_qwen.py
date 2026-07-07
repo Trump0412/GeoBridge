@@ -131,6 +131,24 @@ def maybe_load_stage1_checkpoint(model, stage1_checkpoint_path: str) -> None:
         )
 
 
+def load_model_config(model_name_or_path: str):
+    try:
+        return AutoConfig.from_pretrained(model_name_or_path)
+    except Exception:
+        if "qwen3" not in model_name_or_path.lower():
+            raise
+        from qwen_vl.model.qwenvl3.configuration_qwen3_vl import Qwen3VLConfig
+
+        return Qwen3VLConfig.from_pretrained(model_name_or_path)
+
+
+def load_image_processor(model_name_or_path: str):
+    try:
+        return AutoProcessor.from_pretrained(model_name_or_path).image_processor
+    except Exception:
+        return Qwen2VLImageProcessor.from_pretrained(model_name_or_path)
+
+
 def set_model(model_args, model):
     if model_args.tune_mm_vision:
         for n, p in model.visual.named_parameters():
@@ -218,7 +236,7 @@ def train(attn_implementation="flash_attention_2"):
         else:
             from qwen_vl.model.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGenerationWithVGGT
             print(model_args.model_name_or_path)
-            config = AutoConfig.from_pretrained(model_args.model_name_or_path)
+            config = load_model_config(model_args.model_name_or_path)
             setattr(config, "geometry_encoder_path", model_args.geometry_encoder_path)
             setattr(config, "geo_cross_attn", model_args.geo_cross_attn)
             setattr(config, "geo_inject_version", model_args.geo_inject_version)
@@ -343,9 +361,7 @@ def train(attn_implementation="flash_attention_2"):
             )
             maybe_load_stage1_checkpoint(model, model_args.stage1_checkpoint_path)
 
-        data_args.image_processor = AutoProcessor.from_pretrained(
-            model_args.model_name_or_path,
-        ).image_processor
+        data_args.image_processor = load_image_processor(model_args.model_name_or_path)
 
         if getattr(config, 'depart_smi_token', False):
             data_args.depart_smi_token = True
@@ -365,7 +381,7 @@ def train(attn_implementation="flash_attention_2"):
         else:
             from qwen_vl.model.qwenvl3.modeling_qwen3_vl import Qwen3VLForConditionalGenerationWithVGGT
             print(model_args.model_name_or_path)
-            config = AutoConfig.from_pretrained(model_args.model_name_or_path)
+            config = load_model_config(model_args.model_name_or_path)
             setattr(config, "geometry_encoder_path", model_args.geometry_encoder_path)
             setattr(config.text_config, "depart_smi_token", model_args.depart_smi_token)
             setattr(config.text_config, "smi_image_num", model_args.smi_image_num)
@@ -496,9 +512,7 @@ def train(attn_implementation="flash_attention_2"):
             )
             maybe_load_stage1_checkpoint(model, model_args.stage1_checkpoint_path)
 
-        data_args.image_processor = AutoProcessor.from_pretrained(
-            model_args.model_name_or_path,
-        ).image_processor
+        data_args.image_processor = load_image_processor(model_args.model_name_or_path)
 
         if getattr(config, 'depart_smi_token', False):
             data_args.depart_smi_token = True

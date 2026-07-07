@@ -19,8 +19,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union, List
+from typing import Any, Callable, Dict, Optional, Tuple, Union, List
 
 import torch
 import torch.nn as nn
@@ -43,8 +44,22 @@ from transformers.utils.generic import check_model_inputs
 from .configuration_qwen3_vl import Qwen3VLConfig, Qwen3VLTextConfig, Qwen3VLVisionConfig
 
 from ..geometry_encoders import create_geometry_encoder, GeometryEncoderConfig
+from ..geometry_bank import (
+    ActivatedCorrespondenceGraph,
+    BaseGeometryFusion,
+    ContinuityBuilder,
+    ContinuityUtilitySelector,
+    GeoProjector,
+    GeometryBank,
+    GeometryDecoder,
+    VGGTBankExtractor,
+    VGGTBankFeatureOutput,
+    build_feature_knn_corr_graph_batch,
+)
 from ..feature_fusion import FeatureFusionModule, FeatureFusionConfig, GeometryFeatureMerger
 from ..qwen_interaction import *
+from ..msgf_utils import FrameLayout
+from ...train.stage1_compact_cache import dequantize_projected_tokenwise
 
 
 def _parse_vggt_bank_fusion_layer_indices(config) -> Optional[set[int]]:
@@ -1066,6 +1081,64 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
 
     def _init_geometry_encoder(self, config):
         """Initialize geometry encoder and related modules."""
+        geo_inject_version = getattr(config, "geo_inject_version", "")
+        if geo_inject_version in {"zenview_vggt_bank", "zenview_continuity_bank_v2", "geobridge_hgb"}:
+            bank_layers = getattr(config, "vggt_bank_layers", "11,17,23")
+            if isinstance(bank_layers, str):
+                bank_layers = tuple(int(layer.strip()) for layer in bank_layers.split(",") if layer.strip())
+            else:
+                bank_layers = tuple(int(layer) for layer in bank_layers)
+
+            self.geometry_encoder = VGGTBankExtractor(
+                model_path=getattr(config, "geometry_encoder_path", None),
+                layer_ids=bank_layers,
+                spatial_merge_size=config.vision_config.spatial_merge_size,
+                depart_smi_token=getattr(config, "depart_smi_token", False),
+                smi_image_num=getattr(config, "smi_image_num", 8),
+                smi_downsample_rate=getattr(config, "smi_downsample_rate", 2),
+                cache_vggt_features=bool(getattr(config, "cache_vggt_features", False)),
+                freeze_encoder=bool(getattr(config, "geometry_encoder_freeze", True)),
+                reference_frame=getattr(config, "reference_frame", "first"),
+            )
+            input_dims = {VGGTBankExtractor.layer_name(layer_id): 8192 for layer_id in bank_layers}
+            self.geo_projector = GeoProjector(
+                input_dims=input_dims,
+                d_geom=int(getattr(config, "vggt_bank_d_geom", 1024)),
+            )
+            if geo_inject_version in {"zenview_continuity_bank_v2", "geobridge_hgb"}:
+                self.base_geometry_fusion = BaseGeometryFusion(
+                    d_geom=int(getattr(config, "vggt_bank_d_geom", 1024)),
+                    hidden_ratio=float(getattr(config, "continuity_mlp_hidden_ratio", 2.0)),
+                )
+                self.geometry_decoder = GeometryDecoder(
+                    d_geom=int(getattr(config, "vggt_bank_d_geom", 1024)),
+                    hidden_ratio=float(getattr(config, "continuity_mlp_hidden_ratio", 2.0)),
+                )
+            else:
+                self.base_geometry_fusion = None
+                self.geometry_decoder = None
+            self.continuity_builder = ContinuityBuilder(
+                d_geom=int(getattr(config, "vggt_bank_d_geom", 1024)),
+                radius_t=int(getattr(config, "continuity_radius", 1)),
+                use_spatial_neighbors=bool(getattr(config, "continuity_use_spatial_neighbors", False)),
+                mlp_hidden_ratio=float(getattr(config, "continuity_mlp_hidden_ratio", 2.0)),
+                attention_heads=int(getattr(config, "continuity_attention_heads", 4)),
+            )
+            if geo_inject_version == "geobridge_hgb":
+                self.continuity_selector = ContinuityUtilitySelector(
+                    d_geom=int(getattr(config, "vggt_bank_d_geom", 1024))
+                )
+                self.activated_corr_graph = ActivatedCorrespondenceGraph()
+            else:
+                self.continuity_selector = None
+                self.activated_corr_graph = None
+            self.geometry_bank_builder = GeometryBank(
+                use_continuity=bool(getattr(config, "use_continuity", True)),
+            )
+            self.geometry_merger = None
+            self.feature_fusion = None
+            return
+
         # Create geometry encoder configuration
 
         encoder_config = GeometryEncoderConfig(
@@ -1105,8 +1178,381 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
         print("fusion_config",fusion_config)
         self.feature_fusion = FeatureFusionModule(fusion_config)
 
+    def _infer_depart_smi_source_grid(
+        self,
+        image_embeds: torch.Tensor,
+        num_images: int,
+        target_grid: Tuple[int, int],
+        image_grid_thw: Optional[torch.Tensor] = None,
+    ) -> Tuple[int, int]:
+        if image_embeds.ndim != 2:
+            raise ValueError(f"Expected flattened image embeds, got shape {tuple(image_embeds.shape)}")
+        if num_images <= 0 or image_embeds.shape[0] % num_images != 0:
+            raise ValueError(
+                f"Unable to infer per-image visual grid from {image_embeds.shape[0]} tokens across {num_images} images."
+            )
+
+        tokens_per_frame = image_embeds.shape[0] // num_images
+        merge_size = self.config.vision_config.spatial_merge_size
+
+        if image_grid_thw is not None and len(image_grid_thw) > 0:
+            first_grid = image_grid_thw[0]
+            t_grid = int(first_grid[0])
+            h_grid = int(first_grid[1])
+            w_grid = int(first_grid[2])
+            if t_grid == 1:
+                source_h = h_grid // merge_size
+                source_w = w_grid // merge_size
+                if source_h * source_w == tokens_per_frame:
+                    return source_h, source_w
+
+        target_h, target_w = target_grid
+        target_ratio = (target_w / target_h) if target_h > 0 else 1.0
+        best = None
+        for source_h in range(1, int(math.sqrt(tokens_per_frame)) + 1):
+            if tokens_per_frame % source_h != 0:
+                continue
+            source_w = tokens_per_frame // source_h
+            score = abs((source_w / source_h) - target_ratio)
+            candidate = (score, source_h, source_w)
+            if best is None or candidate < best:
+                best = candidate
+
+        if best is None:
+            raise ValueError(f"Unable to factor {tokens_per_frame} image tokens into a 2D grid.")
+
+        _, source_h, source_w = best
+        return source_h, source_w
+
+    def _align_depart_smi_image_embeds(
+        self,
+        image_embeds: torch.Tensor,
+        num_images: int,
+        target_grid: Tuple[int, int],
+        image_grid_thw: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        target_h, target_w = target_grid
+        expected_tokens = num_images * target_h * target_w
+        if image_embeds.shape[0] == expected_tokens:
+            return image_embeds
+
+        source_h, source_w = self._infer_depart_smi_source_grid(
+            image_embeds=image_embeds,
+            num_images=num_images,
+            target_grid=target_grid,
+            image_grid_thw=image_grid_thw,
+        )
+        dim = image_embeds.shape[-1]
+        image_embeds = image_embeds.reshape(num_images, source_h, source_w, dim).permute(0, 3, 1, 2)
+        image_embeds = F.interpolate(
+            image_embeds,
+            size=(target_h, target_w),
+            mode="bilinear",
+            align_corners=False,
+        )
+        return image_embeds.permute(0, 2, 3, 1).reshape(-1, dim)
+
+    def _frame_layout_from_cached_features(self, cached_features: Dict[str, Any]) -> FrameLayout:
+        return FrameLayout(
+            token_counts=[int(v) for v in cached_features["token_counts"]],
+            frame_shapes=[tuple(int(x) for x in shape) for shape in cached_features["frame_shapes"]],
+        )
+
+    def _build_bank_features_from_cache(self, cached_features: Dict[str, Any]) -> VGGTBankFeatureOutput:
+        layer_tokens = {
+            "g11_raw": cached_features["g11_raw"],
+            "g17_raw": cached_features["g17_raw"],
+            "g23_raw": cached_features["g23_raw"],
+        }
+        frame_layout = self._frame_layout_from_cached_features(cached_features)
+        patch_grid = tuple(int(v) for v in cached_features.get("patch_grid", frame_layout.frame_shapes[0]))
+        merged_grid = tuple(int(v) for v in cached_features.get("merged_grid", frame_layout.frame_shapes[0]))
+        return VGGTBankFeatureOutput(
+            layer_tokens=layer_tokens,
+            frame_layout=frame_layout,
+            patch_grid=patch_grid,
+            merged_grid=merged_grid,
+        )
+
+    def _build_projected_bank_from_cache(
+        self, cached_features: Dict[str, Any]
+    ) -> Optional[Tuple[VGGTBankFeatureOutput, Dict[str, torch.Tensor]]]:
+        required_layers = ("g11", "g17", "g23")
+        feature_space = str(cached_features.get("feature_space", "")).strip()
+        frame_layout = self._frame_layout_from_cached_features(cached_features)
+        patch_grid = tuple(int(v) for v in cached_features.get("patch_grid", frame_layout.frame_shapes[0]))
+        merged_grid = tuple(int(v) for v in cached_features.get("merged_grid", frame_layout.frame_shapes[0]))
+
+        projected = None
+        if feature_space == "projected" and all(name in cached_features for name in required_layers):
+            projected = {name: cached_features[name] for name in required_layers}
+        elif feature_space == "projected_quantized" and all(
+            f"{name}_q" in cached_features and f"{name}_scale" in cached_features for name in required_layers
+        ):
+            projected = {
+                name: dequantize_projected_tokenwise(
+                    cached_features[f"{name}_q"],
+                    cached_features[f"{name}_scale"],
+                ).to(dtype=torch.float16)
+                for name in required_layers
+            }
+        if projected is None:
+            return None
+
+        extracted = VGGTBankFeatureOutput(
+            layer_tokens={f"{name}_raw": projected[name] for name in required_layers},
+            frame_layout=frame_layout,
+            patch_grid=patch_grid,
+            merged_grid=merged_grid,
+        )
+        return extracted, projected
+
+    def _resolve_cached_bank_features(
+        self, cached_features: Dict[str, Any]
+    ) -> Tuple[Optional[VGGTBankFeatureOutput], Optional[Dict[str, torch.Tensor]], Optional[str]]:
+        required_raw = ("g11_raw", "g17_raw", "g23_raw")
+        if all(key in cached_features for key in required_raw):
+            extracted = self._build_bank_features_from_cache(cached_features)
+            projected = self.geo_projector(extracted.layer_tokens)
+            return extracted, projected, None
+
+        projected_bundle = self._build_projected_bank_from_cache(cached_features)
+        if projected_bundle is not None:
+            extracted, projected = projected_bundle
+            return extracted, projected, None
+
+        layer_names = tuple(str(name) for name in cached_features.get("layer_names", ()))
+        feature_space = str(cached_features.get("feature_space", cached_features.get("cache_format", "unknown"))).strip()
+        if layer_names:
+            reason = f"incomplete_cache_layers={','.join(layer_names)} feature_space={feature_space}"
+        else:
+            reason = f"unsupported_cache_format={feature_space or 'unknown'}"
+        return None, None, reason
+
+    def _warn_geometry_cache_fallback(self, reason: str) -> None:
+        warned = getattr(self, "_geometry_cache_fallback_warnings", set())
+        if reason in warned:
+            return
+        logger.warning("Falling back to online VGGT because cached geometry is not HGB-ready: %s", reason)
+        warned.add(reason)
+        self._geometry_cache_fallback_warnings = warned
+
+    def _geometry_tensor_from_input(self, geometry_inputs):
+        if isinstance(geometry_inputs, dict):
+            return geometry_inputs.get("geometry_encoder_inputs", None)
+        if isinstance(geometry_inputs, torch.Tensor):
+            return geometry_inputs
+        return None
+
+    def _normalize_geometry_encoder_inputs(self, geometry_encoder_inputs):
+        if geometry_encoder_inputs is None:
+            return []
+        if isinstance(geometry_encoder_inputs, torch.Tensor):
+            if geometry_encoder_inputs.ndim == 5:
+                return [sample for sample in geometry_encoder_inputs]
+            return [geometry_encoder_inputs]
+        if isinstance(geometry_encoder_inputs, tuple):
+            return list(geometry_encoder_inputs)
+        if isinstance(geometry_encoder_inputs, list):
+            normalized = []
+            for item in geometry_encoder_inputs:
+                if isinstance(item, torch.Tensor) and item.ndim == 5:
+                    normalized.extend([sample for sample in item])
+                else:
+                    normalized.append(item)
+            return normalized
+        return [geometry_encoder_inputs]
+
+    def _geometry_input_num_images(self, geometry_inputs) -> int:
+        if geometry_inputs is None:
+            return 0
+        geometry_tensor = self._geometry_tensor_from_input(geometry_inputs)
+        if isinstance(geometry_tensor, torch.Tensor) and geometry_tensor.ndim > 0:
+            return int(geometry_tensor.shape[0])
+        if isinstance(geometry_inputs, dict):
+            frame_paths = geometry_inputs.get("frame_paths", None)
+            if frame_paths is not None and len(frame_paths) > 0:
+                return len(frame_paths)
+            token_counts = geometry_inputs.get("token_counts", None)
+            if token_counts is not None:
+                return len(token_counts)
+        return 0
+
+    def _image_embed_token_count_from_grid(self, image_grid_thw: Optional[torch.Tensor]) -> int:
+        if image_grid_thw is None or image_grid_thw.numel() == 0:
+            return 0
+        merge_size = int(self.config.vision_config.spatial_merge_size)
+        total = 0
+        for row in image_grid_thw.detach().cpu().tolist():
+            t = max(int(row[0]), 1)
+            h = max(int(row[1]) // merge_size, 1)
+            w = max(int(row[2]) // merge_size, 1)
+            total += t * h * w
+        return int(total)
+
+    def _split_hgb_image_inputs(self, image_embeds, image_grid_thw, geometry_encoder_inputs):
+        sample_image_embeds = []
+        sample_image_grid_thw = []
+        grid_cursor = 0
+        embed_cursor = 0
+
+        for geometry_inputs in geometry_encoder_inputs:
+            num_images = self._geometry_input_num_images(geometry_inputs)
+            if num_images > 0:
+                if image_grid_thw is None:
+                    raise ValueError("image_grid_thw is required for batched GeoBridge HGB geometry inputs.")
+                sample_grid = image_grid_thw[grid_cursor : grid_cursor + num_images]
+                if sample_grid.shape[0] != num_images:
+                    raise ValueError(
+                        f"Unable to split image_grid_thw for GeoBridge HGB: expected {num_images} rows, "
+                        f"got {sample_grid.shape[0]} at cursor {grid_cursor}."
+                    )
+            else:
+                sample_grid = image_grid_thw.new_empty((0, 3)) if image_grid_thw is not None else None
+
+            token_count = self._image_embed_token_count_from_grid(sample_grid)
+            sample_embeds = image_embeds[embed_cursor : embed_cursor + token_count]
+            if sample_embeds.shape[0] != token_count:
+                raise ValueError(
+                    f"Unable to split image embeddings for GeoBridge HGB: expected {token_count} tokens, "
+                    f"got {sample_embeds.shape[0]} at cursor {embed_cursor}."
+                )
+            sample_image_embeds.append(sample_embeds)
+            sample_image_grid_thw.append(sample_grid)
+            grid_cursor += num_images
+            embed_cursor += token_count
+
+        if image_grid_thw is not None and grid_cursor != image_grid_thw.shape[0]:
+            raise ValueError(
+                f"Unused image_grid_thw rows while splitting GeoBridge HGB batch: "
+                f"used={grid_cursor} total={image_grid_thw.shape[0]}."
+            )
+        if embed_cursor != image_embeds.shape[0]:
+            raise ValueError(
+                f"Unused image embeddings while splitting GeoBridge HGB batch: "
+                f"used={embed_cursor} total={image_embeds.shape[0]}."
+            )
+        return sample_image_embeds, sample_image_grid_thw
+
+    def _process_single_hgb_geometry_features(self, image_embeds, geometry_inputs, image_grid_thw=None):
+        if geometry_inputs is None:
+            return image_embeds, None
+        geometry_inputs_for_align = self._geometry_tensor_from_input(geometry_inputs)
+        if isinstance(geometry_inputs, dict):
+            extracted, projected, cache_fallback_reason = self._resolve_cached_bank_features(geometry_inputs)
+            if extracted is None or projected is None:
+                if not isinstance(geometry_inputs_for_align, torch.Tensor) or geometry_inputs_for_align.shape[0] <= 0:
+                    raise ValueError(
+                        "GeoBridge / ZenView geometry cache is incomplete and no online geometry inputs are available "
+                        f"(reason={cache_fallback_reason})."
+                    )
+                self._warn_geometry_cache_fallback(cache_fallback_reason or "missing_required_bank_layers")
+                extracted = self.geometry_encoder.extract(geometry_inputs_for_align)
+                projected = self.geo_projector(extracted.layer_tokens)
+        else:
+            if not isinstance(geometry_inputs, torch.Tensor) or geometry_inputs.shape[0] <= 0:
+                return image_embeds, None
+            extracted = self.geometry_encoder.extract(geometry_inputs)
+            projected = self.geo_projector(extracted.layer_tokens)
+
+        geo_variant = getattr(self.config, "geo_inject_version", "")
+        saliency = None
+        if geo_variant in {"zenview_continuity_bank_v2", "geobridge_hgb"}:
+            z = self.base_geometry_fusion(projected["g11"], projected["g17"], projected["g23"])
+            if geo_variant == "geobridge_hgb":
+                corr_graph = build_feature_knn_corr_graph_batch(
+                    z,
+                    extracted.frame_layout.token_counts,
+                    temporal_radius=int(getattr(self.config, "hgb_temporal_radius", 2)),
+                    topk_neighbors=int(getattr(self.config, "hgb_corr_topk_neighbors", 8)),
+                    feature_norm=True,
+                )
+                selector_output = None
+                edge_activation = None
+                if getattr(self, "continuity_selector", None) is not None:
+                    valid_mask = torch.zeros(z.shape[:2], dtype=torch.bool, device=z.device)
+                    for frame_idx, token_count in enumerate(extracted.frame_layout.token_counts):
+                        valid_mask[frame_idx, :token_count] = True
+                    selector_output = self.continuity_selector(
+                        z.detach().unsqueeze(0),
+                        corr_graph["neighbor_indices"].unsqueeze(0),
+                        corr_graph["neighbor_scores"].unsqueeze(0),
+                        valid_mask.unsqueeze(0),
+                    )
+                    saliency = selector_output["probs"].squeeze(0)
+                if getattr(self, "activated_corr_graph", None) is not None and selector_output is not None:
+                    activated = self.activated_corr_graph(
+                        corr_graph["neighbor_indices"].unsqueeze(0),
+                        corr_graph["neighbor_scores"].unsqueeze(0),
+                        saliency.unsqueeze(0),
+                    )
+                    edge_activation = activated["activation"].squeeze(0)
+                continuity = self.continuity_builder.forward_from_fused(
+                    z,
+                    frame_shapes=extracted.frame_layout.frame_shapes,
+                    mode="corr_graph",
+                    corr_neighbor_indices=corr_graph["neighbor_indices"],
+                    corr_neighbor_scores=corr_graph["neighbor_scores"],
+                    corr_edge_activation=edge_activation,
+                )
+            else:
+                continuity = self.continuity_builder.forward_from_fused(z, frame_shapes=extracted.frame_layout.frame_shapes)
+        else:
+            continuity = self.continuity_builder(
+                projected["g11"],
+                projected["g17"],
+                projected["g23"],
+                frame_shapes=extracted.frame_layout.frame_shapes,
+            )
+        geometry_bank = self.geometry_bank_builder(
+            projected["g11"],
+            projected["g17"],
+            projected["g23"],
+            continuity,
+            extracted.frame_layout,
+            saliency=saliency,
+        )
+        if (
+            getattr(self.config, "depart_smi_token", False)
+            and isinstance(geometry_inputs_for_align, torch.Tensor)
+            and geometry_inputs_for_align.shape[0] > getattr(self.config, "smi_image_num", 8)
+        ):
+            image_embeds = self._align_depart_smi_image_embeds(
+                image_embeds=image_embeds,
+                num_images=geometry_inputs_for_align.shape[0],
+                target_grid=extracted.merged_grid,
+                image_grid_thw=image_grid_thw,
+            )
+        return image_embeds, geometry_bank
+
     def _process_geometry_features(self, image_embeds, geometry_encoder_inputs, inputs_embeds, image_grid_thw, deepstack_image_embeds):
         """Process geometry features using the geometry encoder."""
+
+        geometry_encoder_inputs = self._normalize_geometry_encoder_inputs(geometry_encoder_inputs)
+
+        if getattr(self.config, "geo_inject_version", "") in {"zenview_vggt_bank", "zenview_continuity_bank_v2", "geobridge_hgb"}:
+            split_image_embeds, split_image_grid_thw = self._split_hgb_image_inputs(
+                image_embeds,
+                image_grid_thw,
+                geometry_encoder_inputs,
+            )
+            aligned_image_embeds = []
+            geometry_banks = []
+            for sample_embeds, sample_grid_thw, geometry_inputs in zip(
+                split_image_embeds,
+                split_image_grid_thw,
+                geometry_encoder_inputs,
+            ):
+                sample_embeds, geometry_bank = self._process_single_hgb_geometry_features(
+                    sample_embeds,
+                    geometry_inputs,
+                    image_grid_thw=sample_grid_thw,
+                )
+                aligned_image_embeds.append(sample_embeds)
+                geometry_banks.append(geometry_bank)
+            if aligned_image_embeds:
+                image_embeds = torch.cat(aligned_image_embeds, dim=0)
+            return image_embeds, geometry_banks, deepstack_image_embeds
 
         batch_size = len(geometry_encoder_inputs)
         geo_embeds = []
@@ -1449,7 +1895,8 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
                 image_embeds, geo_embeds, deepstack_image_embeds = \
                     self._process_geometry_features(image_embeds, geometry_encoder_inputs, text_embeds, image_grid_thw, deepstack_image_embeds)
 
-                geo_embeds = geo_embeds.view(1,-1,geo_embeds.shape[-1])
+                if torch.is_tensor(geo_embeds):
+                    geo_embeds = geo_embeds.view(1,-1,geo_embeds.shape[-1])
 
             inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
@@ -1670,6 +2117,34 @@ class Qwen3VLForConditionalGenerationWithVGGT(Qwen3VLPreTrainedModel, Generation
     @property
     def geometry_encoder(self):
         return self.model.geometry_encoder
+
+    @property
+    def geo_projector(self):
+        return getattr(self.model, "geo_projector", None)
+
+    @property
+    def base_geometry_fusion(self):
+        return getattr(self.model, "base_geometry_fusion", None)
+
+    @property
+    def continuity_builder(self):
+        return getattr(self.model, "continuity_builder", None)
+
+    @property
+    def geometry_decoder(self):
+        return getattr(self.model, "geometry_decoder", None)
+
+    @property
+    def continuity_selector(self):
+        return getattr(self.model, "continuity_selector", None)
+
+    @property
+    def activated_corr_graph(self):
+        return getattr(self.model, "activated_corr_graph", None)
+
+    @property
+    def geometry_bank_builder(self):
+        return getattr(self.model, "geometry_bank_builder", None)
 
     # @check_model_inputs()
     def forward(
