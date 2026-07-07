@@ -1,0 +1,75 @@
+# GeoBridge Stage2-HGB frozen runtime reference
+# Captured on: 2026-06-05
+# Source environment: /data3/yeyuanhao/.conda/envs/geothinker
+#
+# This file records the exact environment used for the current full 7-dataset
+# Stage2-HGB run. Treat it as a reproducibility lock/reference. Some packages
+# such as torch CUDA wheels and flash-attn may require the install notes below
+# rather than a plain "pip install -r" on a fresh machine.
+
+[system]
+os=Linux
+python=3.10.19
+cuda_runtime=12.4
+gpu=NVIDIA A100 80GB PCIe
+gpu_memory_mib=81920
+nvidia_driver=570.172.08
+
+[executables]
+python=/data3/yeyuanhao/.conda/envs/geothinker/bin/python3.10
+torchrun=/data3/yeyuanhao/.conda/envs/geothinker/bin/torchrun
+deepspeed=/data3/yeyuanhao/.conda/envs/geothinker/bin/deepspeed
+
+[core_packages]
+torch==2.5.1+cu124
+torchvision==0.20.1+cu124
+torchaudio==2.5.1+cu124
+transformers==4.50.0
+deepspeed==0.18.7
+accelerate==1.4.0
+flash-attn==2.7.4.post1
+xformers==0.0.29.post1
+triton==3.1.0
+peft==0.18.1
+datasets==3.6.0
+huggingface-hub==0.36.2
+tokenizers==0.21.4
+safetensors==0.7.0
+
+[data_and_runtime_packages]
+numpy==1.26.4
+pandas==2.3.3
+pyarrow==23.0.1
+scipy==1.15.3
+pillow==12.1.1
+decord==0.6.0
+einops==0.8.2
+sentencepiece==0.1.99
+protobuf==3.20.3
+tqdm==4.67.3
+wandb==0.25.0
+ninja==1.13.0
+
+[recommended_install_sequence]
+conda create -n geothinker python=3.10
+conda activate geothinker
+pip install torch==2.5.1+cu124 torchvision==0.20.1+cu124 torchaudio==2.5.1+cu124 --index-url https://download.pytorch.org/whl/cu124
+pip install transformers==4.50.0 deepspeed==0.18.7 accelerate==1.4.0 peft==0.18.1 datasets==3.6.0
+pip install flash-attn==2.7.4.post1 --no-build-isolation
+pip install xformers==0.0.29.post1 decord==0.6.0 pillow==12.1.1 einops==0.8.2 sentencepiece==0.1.99 protobuf==3.20.3
+pip install -e .
+
+[stage2_reference_run]
+cuda_visible_devices=2,3,4,5
+nproc_per_node=4
+per_device_batch_size=8
+gradient_accumulation_steps=2
+global_batch_size=64
+max_steps=20887
+sample_count=1336718
+learning_rate=1e-5
+warmup_ratio=0.05
+deepspeed=ZeRO-2
+gradient_checkpointing=True
+hgb_fusion_layers=0,2,4,6
+datasets=llava_hound_64k,spar_234k,vsi_590k,vlm3r_vsi_205k,vlm3r_vst_132k,mindcube_10k,joyai_openspatial_100k
