@@ -50,6 +50,23 @@ def load_stage1_checkpoint(model, checkpoint_path: str) -> None:
         if not submodule_state:
             print(f"stage1_prefix={prefix} status=no_state")
             continue
+        module_state = module.state_dict()
+        compatible_state = {}
+        skipped = []
+        for key, value in submodule_state.items():
+            target = module_state.get(key)
+            if target is None or not torch.is_tensor(value) or value.shape == target.shape:
+                compatible_state[key] = value
+            elif value.numel() == target.numel():
+                compatible_state[key] = value.reshape(target.shape)
+            else:
+                skipped.append((key, tuple(value.shape), tuple(target.shape)))
+        if skipped:
+            print(f"stage1_prefix={prefix} skipped_incompatible={skipped}")
+        submodule_state = compatible_state
+        if not submodule_state:
+            print(f"stage1_prefix={prefix} status=no_compatible_state")
+            continue
         missing, unexpected = module.load_state_dict(submodule_state, strict=False)
         print(
             f"stage1_prefix={prefix} loaded_keys={len(submodule_state)} "

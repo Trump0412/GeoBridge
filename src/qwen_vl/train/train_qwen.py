@@ -100,6 +100,27 @@ def set_module_trainability(module, trainable: bool) -> None:
         parameter.requires_grad = trainable
 
 
+def make_stage1_submodule_state_compatible(module, submodule_state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    module_state = module.state_dict()
+    compatible = {}
+    skipped = []
+    for key, value in submodule_state.items():
+        target = module_state.get(key)
+        if target is None:
+            compatible[key] = value
+            continue
+        if not torch.is_tensor(value) or value.shape == target.shape:
+            compatible[key] = value
+            continue
+        if value.numel() == target.numel():
+            compatible[key] = value.reshape(target.shape)
+            continue
+        skipped.append((key, tuple(value.shape), tuple(target.shape)))
+    if skipped:
+        rank0_print(f"Skipped incompatible Stage1 tensors: {skipped}")
+    return compatible
+
+
 def maybe_load_stage1_checkpoint(model, stage1_checkpoint_path: str) -> None:
     stage1_checkpoint_path = (stage1_checkpoint_path or "").strip()
     if not stage1_checkpoint_path:
@@ -125,6 +146,9 @@ def maybe_load_stage1_checkpoint(model, stage1_checkpoint_path: str) -> None:
             for key, value in state_dict.items()
             if key.startswith(f"{prefix}.")
         }
+        if not submodule_state:
+            continue
+        submodule_state = make_stage1_submodule_state_compatible(module, submodule_state)
         if not submodule_state:
             continue
         missing, unexpected = module.load_state_dict(submodule_state, strict=False)
