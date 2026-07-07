@@ -32,7 +32,10 @@ sys.path.insert(0, str(project_root))
 
 import qwen_vl.train.trainer
 import qwen_vl.train.sampler
-from trainer import replace_qwen2_vl_attention_class
+try:
+    from trainer import replace_qwen2_vl_attention_class
+except ImportError:
+    from qwen_vl.train.trainer import replace_qwen2_vl_attention_class
 
 from transformers import (
     Qwen2VLForConditionalGeneration,
