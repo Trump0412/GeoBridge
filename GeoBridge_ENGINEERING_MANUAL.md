@@ -87,6 +87,7 @@ The Qwen3 launcher sets:
 ```text
 MODEL_PATH=/mnt/guojh/lq/new/models/Qwen/Qwen3-VL-2B-Instruct
 QWEN_ATTN_IMPLEMENTATION=sdpa
+VGGT_BANK_FUSION_LAYER_INDICES=0,1,2
 ```
 
 Use `flash_attention_2` only after the environment has a compatible flash-attn build.

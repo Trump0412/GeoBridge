@@ -34,7 +34,7 @@ Stage2 reads four geometry candidates per visual token:
 g11, g17, g23, continuity
 ```
 
-The active HGB configuration is:
+The historical Qwen2.5 HGB configuration is:
 
 ```text
 fusion layers: 0,2,4,6
@@ -43,6 +43,9 @@ continuity radius: 2
 hgb layer scale init: 0.05
 strict alignment: true
 ```
+
+The Qwen3-VL-2B wrapper uses fusion layers `0,1,2` so HGB follows Qwen3's deepstack visual
+injection into the first three language decoder layers.
 
 The final historical Qwen2.5 run used seven data sources:
 

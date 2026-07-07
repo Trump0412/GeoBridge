@@ -62,6 +62,10 @@ Stage2 HGB using the Qwen3-VL-2B local model:
 bash scripts/train/train_stage2_qwen3vl_2b_geobridge_hgb.sh
 ```
 
+The Qwen3 wrapper defaults HGB fusion to language layers `0,1,2`, matching Qwen3-VL deepstack
+visual injection into the first three decoder layers. Qwen2.5 Stage2 launchers keep the historical
+`0,2,4,6` sparse4 schedule.
+
 Use environment overrides for real runs:
 
 ```bash

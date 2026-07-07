@@ -479,7 +479,10 @@ def train(attn_implementation="flash_attention_2"):
                 "smi_image_num",
                 "smi_downsample_rate",
             ]:
-                setattr(config, k, getattr(model_args, k))
+                value = getattr(model_args, k)
+                setattr(config, k, value)
+                setattr(config.text_config, k, value)
+            setattr(config.text_config, "vision_config", config.vision_config)
 
             assert model_args.geometry_encoder_path is not None, \
                 "geometry_encoder_path must be set in the config when use_geometry_encoder is True."

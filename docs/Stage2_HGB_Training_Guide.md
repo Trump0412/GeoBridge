@@ -43,7 +43,10 @@ Qwen3-VL-2B path:
 bash scripts/train/train_stage2_qwen3vl_2b_geobridge_hgb.sh
 ```
 
-The Qwen3 wrapper only changes the model path and attention default. All HGB arguments are shared.
+The Qwen3 wrapper changes the model path, attention default, and HGB fusion schedule. Qwen3-VL
+deepstack visual features are injected into the first three text decoder layers, so the Qwen3
+wrapper defaults `VGGT_BANK_FUSION_LAYER_INDICES=0,1,2`. The Qwen2.5 launcher keeps the historical
+`0,2,4,6` sparse4 schedule.
 
 ## Core HGB Arguments
 
@@ -51,7 +54,7 @@ The Qwen3 wrapper only changes the model path and attention default. All HGB arg
 geo_inject_version=geobridge_hgb
 vggt_bank_layers=11,17,23
 vggt_bank_num_layers=8
-vggt_bank_fusion_layer_indices=0,2,4,6
+vggt_bank_fusion_layer_indices=0,2,4,6  # Qwen2.5 default; Qwen3 wrapper overrides to 0,1,2.
 use_continuity=True
 continuity_radius=2
 hgb_local_topk=2

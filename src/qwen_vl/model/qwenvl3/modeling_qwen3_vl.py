@@ -46,6 +46,15 @@ from ..geometry_encoders import create_geometry_encoder, GeometryEncoderConfig
 from ..feature_fusion import FeatureFusionModule, FeatureFusionConfig, GeometryFeatureMerger
 from ..qwen_interaction import *
 
+
+def _parse_vggt_bank_fusion_layer_indices(config) -> Optional[set[int]]:
+    raw_value = str(getattr(config, "vggt_bank_fusion_layer_indices", "")).strip()
+    if not raw_value:
+        return None
+    parsed = {int(index.strip()) for index in raw_value.split(",") if index.strip()}
+    return parsed or None
+
+
 class Qwen3VLVisionMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -480,6 +489,9 @@ QWEN3_VL_GEOMETRY_ATTENTION_CLASSES = {
     "v1": QwenVGGTInteractionv1,
     "v2": QwenVGGTInteractionv2,
     "v2_flash": QwenVGGTInteractionv2Flash,
+    "zenview_vggt_bank": QwenZenViewVGGTGeometryBank,
+    "zenview_continuity_bank_v2": QwenZenViewContinuityBankV2,
+    "geobridge_hgb": QwenGeoBridgeHGB,
 }
 
 
@@ -507,6 +519,12 @@ class Qwen3VLTextDecoderLayer(nn.Module):
                 self.cross_flag = self.cross_flag and (layer_idx > quarter_num ) and (layer_idx < (config.num_hidden_layers - quarter_num)  )
             elif self.geo_inject_version in ["v2","v2_flash"]:
                 self.cross_flag = self.cross_flag and (layer_idx < (config.num_hidden_layers - quarter_num)  )
+            elif self.geo_inject_version in ["zenview_vggt_bank", "zenview_continuity_bank_v2", "geobridge_hgb"]:
+                sparse_layer_indices = _parse_vggt_bank_fusion_layer_indices(config)
+                if sparse_layer_indices is not None:
+                    self.cross_flag = self.cross_flag and (layer_idx in sparse_layer_indices)
+                else:
+                    self.cross_flag = self.cross_flag and (layer_idx < int(getattr(config, "vggt_bank_num_layers", 20)))
             else: raise
 
             if self.cross_flag:
@@ -554,19 +572,33 @@ class Qwen3VLTextDecoderLayer(nn.Module):
 
         #=============================================
         if self.cross_flag and geo_embed_mask is not None:
-            B, S, H = hidden_states.shape
-            assert B == 1
-
-            geo_embed_mask = geo_embed_mask[0].all(-1)
-            text_hidden_states = hidden_states[:,geo_embed_mask==False]
-            target_states = hidden_states[:, geo_embed_mask]
-            image_hidden_states = self.cross_attn(
-                target_states, geo_embeds.detach(), 
-                text_hidden_states=text_hidden_states,
-                grid_thw=image_grid_thw,
+            batch_size = hidden_states.shape[0]
+            banks = list(geo_embeds) if isinstance(geo_embeds, (list, tuple)) else [geo_embeds] * batch_size
+            grid_thws = (
+                list(image_grid_thw)
+                if isinstance(image_grid_thw, (list, tuple))
+                else [image_grid_thw] * batch_size
             )
 
-            hidden_states[:,geo_embed_mask] = hidden_states[:,geo_embed_mask] + image_hidden_states
+            for batch_idx in range(batch_size):
+                geometry_bank = banks[batch_idx] if batch_idx < len(banks) else None
+                if geometry_bank is None:
+                    continue
+                sample_geo_mask = geo_embed_mask[batch_idx].all(-1)
+                if not bool(sample_geo_mask.any()):
+                    continue
+                image_hidden_states = hidden_states[batch_idx : batch_idx + 1, sample_geo_mask]
+                text_hidden_states = hidden_states[batch_idx : batch_idx + 1, sample_geo_mask == False]
+                cross_bank = geometry_bank.detach() if torch.is_tensor(geometry_bank) else geometry_bank
+                image_hidden_states = self.cross_attn(
+                    image_hidden_states,
+                    cross_bank,
+                    text_hidden_states=text_hidden_states,
+                    grid_thw=grid_thws[batch_idx] if batch_idx < len(grid_thws) else None,
+                )
+                hidden_states[batch_idx : batch_idx + 1, sample_geo_mask] = (
+                    hidden_states[batch_idx : batch_idx + 1, sample_geo_mask] + image_hidden_states
+                )
         #=============================================
 
         # Fully Connected
