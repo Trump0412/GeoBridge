@@ -221,6 +221,8 @@ outputs/
 runs/
 tmp/
 models/
+!src/qwen_vl/model/vggt/models/
+!src/qwen_vl/model/vggt/models/*.py
 weights/
 *.safetensors
 *.pt
