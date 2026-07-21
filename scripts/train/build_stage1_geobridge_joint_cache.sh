@@ -4,12 +4,12 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_ROOT=${PROJECT_ROOT:-"$(cd "${SCRIPT_DIR}/../.." && pwd)"}
 
-MODEL_PATH=${MODEL_PATH:-"/data3/yeyuanhao/sp_re_cbp/thirdparty/models/Qwen2.5-VL-7B-Instruct"}
-GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH:-"/data3/yeyuanhao/sp_re_cbp/GeoThinker/models/VGGT-1B"}
+MODEL_PATH=${MODEL_PATH:-"models/Qwen2.5-VL-7B-Instruct"}
+GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH:-"models/VGGT-1B"}
 PROJECTOR_CHECKPOINT_PATH=${PROJECTOR_CHECKPOINT_PATH:-"${PROJECT_ROOT}/outputs/stage1_continuity_v2_corrgraph_feature_knn/best.pt"}
 
 INPUT_MANIFEST_PATH=${INPUT_MANIFEST_PATH:-"${PROJECT_ROOT}/cache/zenview_continuity_bank_v2_multiwindow_corrgraph_feature_knn/manifest.jsonl"}
-JOINT_CACHE_DIR=${JOINT_CACHE_DIR:-"/data2/yeyuanhao/sp_re_cbp/GeoThinker_zenview_vggt_bank/cache/stage1_geobridge_joint_compact_projected_int8"}
+JOINT_CACHE_DIR=${JOINT_CACHE_DIR:-"${PROJECT_ROOT:-.}/cache/stage1_geobridge_joint_compact_projected_int8"}
 OUTPUT_MANIFEST_PATH=${OUTPUT_MANIFEST_PATH:-"${JOINT_CACHE_DIR}/manifest.jsonl"}
 
 FEATURE_LAYERS=${FEATURE_LAYERS:-"g11,g17,g23"}

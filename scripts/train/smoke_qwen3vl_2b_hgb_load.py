@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Load-only smoke test for Qwen3-VL-2B GeoBridge HGB Stage2."""
+"""Load-only smoke test for Qwen3-VL-2B SpatialFit HGB Stage2."""
 
 from __future__ import annotations
 

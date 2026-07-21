@@ -243,7 +243,7 @@ def train(attn_implementation="flash_attention_2"):
         getattr(model_args, "geo_inject_version", "") == "geobridge_hgb"
         and not str(getattr(model_args, "stage1_checkpoint_path", "")).strip()
     ):
-        raise ValueError("GeoBridge HGB requires an explicit --stage1_checkpoint_path.")
+        raise ValueError("SpatialFit HGB requires an explicit --stage1_checkpoint_path.")
 
     set_seed(training_args.seed)
     # enable_full_determinism(training_args.seed)
@@ -573,7 +573,7 @@ def train(attn_implementation="flash_attention_2"):
         rank0_print("Using non-reentrant gradient checkpointing for ZenView geometry-bank variants.")
 
     if getattr(model.config, "geo_inject_version", "") == "geobridge_hgb":
-        rank0_print("GeoBridge HGB effective config:")
+        rank0_print("SpatialFit HGB effective config:")
         rank0_print(json.dumps(build_hgb_effective_config(model_args, data_args), ensure_ascii=False, indent=2))
 
     if training_args.gradient_checkpointing:

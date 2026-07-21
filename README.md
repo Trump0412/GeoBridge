@@ -1,96 +1,89 @@
-# GeoBridge
+# SpatialFit
 
-GeoBridge bridges discrete Qwen-VL visual tokens with continuous VGGT geometry for spatial reasoning.
-
-This repository is the cleaned GeoBridge codebase for the paper line that now keeps only:
+SpatialFit is a geometry-aware training codebase for spatial reasoning with
+vision-language models. It connects discrete visual tokens with frozen geometry
+features through two training stages:
 
 ```text
-Stage 1: FCP - Foreground-aware Correspondence Pretraining
-Stage 2: HGB - Heterogeneous Geometry Bridging
+Stage 1: Foreground-aware Correspondence Pretraining
+Stage 2: Heterogeneous Geometry Bridging
 ```
 
-The previous Stage3 RL/PSRO work has moved to the separate GeoPSRO repository. Benchmark construction and lmms-eval benchmark runners are intentionally not part of this repo.
+Generated datasets, model weights, checkpoints, caches, logs, and evaluation
+artifacts are intentionally excluded from Git.
 
 ## Repository Layout
 
 ```text
-src/qwen_vl/model/geometry_bank/   FCP/HGB geometry bank modules
-src/qwen_vl/model/stage2/          HGB gate and local-router components
+src/qwen_vl/model/geometry_bank/   Stage 1 geometry-bank modules
+src/qwen_vl/model/stage2/          Stage 2 gate and local-router components
 src/qwen_vl/model/qwenvl3/         Qwen3-VL compatibility wrapper
-src/qwen_vl/train/                 Stage1/Stage2 training and cache builders
-scripts/train/                     Server launchers and data-prep helpers
-configs/geobridge_paths.env        Shared server paths
-tests/                             Lightweight Stage1/Stage2 unit tests
+src/qwen_vl/train/                 training and cache-building code
+scripts/train/                     launchers and data-preparation helpers
+configs/                           portable runtime defaults
+tests/                             lightweight unit tests
 ```
 
-Generated data, model weights, checkpoints, caches, logs, and evaluation artifacts are ignored by Git.
+Some internal Python symbols keep their historical names for backward
+compatibility with checkpoints and launcher arguments. Public documentation and
+package metadata use the SpatialFit name.
 
-## Server Defaults
+## Installation
 
-Current shared server root:
-
-```text
-/mnt/guojh/lq/new
+```bash
+python -m pip install -e .
+python -m pytest -q
 ```
 
-Important defaults are collected in `configs/geobridge_paths.env`:
+## Configure Paths
 
-```text
-Qwen2.5-VL-7B: /mnt/guojh/lq/new/models/Qwen/Qwen2.5-VL-7B-Instruct
-Qwen3-VL-2B:   /mnt/guojh/lq/new/models/Qwen/Qwen3-VL-2B-Instruct
-VGGT-1B:       /mnt/guojh/lq/new/models/VGGT-1B
-HF mirror:     https://hf-mirror.com
+Set local paths before real training:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+export SPATIALFIT_WORK_ROOT=/path/to/workdir
+export QWEN25VL_7B_PATH=/path/to/Qwen2.5-VL-7B-Instruct
+export QWEN3VL_2B_PATH=/path/to/Qwen3-VL-2B-Instruct
+export VGGT_1B_PATH=/path/to/VGGT-1B
+export STAGE1_FCP_CKPT=/path/to/stage1/checkpoint.pt
+export STAGE1_WINDOW_READY_CACHE=/path/to/stage1/cache
 ```
+
+`configs/spatialfit_paths.env` provides portable defaults that can be overridden
+by environment variables.
 
 ## Main Commands
 
-Stage1 FCP smoke:
+Stage 1 smoke:
 
 ```bash
-bash scripts/train/train_smoke_stage1_geobridge_fcp_g11.sh
+bash scripts/train/train_smoke_stage1_spatialfit_fcp_g11.sh
 ```
 
-Stage2 HGB smoke with the Qwen2.5-compatible path:
+Stage 2 with Qwen3-VL:
 
 ```bash
-bash scripts/train/launch_stage2_hgb_ckpt9000_4gpu_7datasets_bs32_layers0246_smoke.sh
+MODEL_PATH="${QWEN3VL_2B_PATH}" \
+STAGE1_CHECKPOINT_PATH="${STAGE1_FCP_CKPT}" \
+CACHE_DIR="${STAGE1_WINDOW_READY_CACHE}" \
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+NPROC_PER_NODE=4 \
+TOTAL_BATCH_SIZE=32 \
+bash scripts/train/train_stage2_qwen3vl_2b_spatialfit_hgb.sh
 ```
 
-Stage2 HGB using the Qwen3-VL-2B local model:
+Stage 2 with Qwen2.5-VL:
 
 ```bash
-bash scripts/train/train_stage2_qwen3vl_2b_geobridge_hgb.sh
+MODEL_PATH="${QWEN25VL_7B_PATH}" \
+STAGE1_CHECKPOINT_PATH="${STAGE1_FCP_CKPT}" \
+CACHE_DIR="${STAGE1_WINDOW_READY_CACHE}" \
+bash scripts/train/train_stage2_qwen25vl_7b_spatialfit_hgb.sh
 ```
 
-The Qwen3 wrapper defaults HGB fusion to language layers `0,1,2`, matching Qwen3-VL deepstack
-visual injection into the first three decoder layers. Qwen2.5 Stage2 launchers keep the historical
-`0,2,4,6` sparse4 schedule.
+## Notes
 
-Use environment overrides for real runs:
-
-```bash
-PROJECT_ROOT=/mnt/guojh/lq/new/code/spatial4nips \
-STAGE1_CHECKPOINT_PATH=/path/to/checkpoint-9000.pt \
-CACHE_DIR=/path/to/stage1_cache \
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 \
-NPROC_PER_NODE=6 \
-TOTAL_BATCH_SIZE=48 \
-bash scripts/train/train_stage2_qwen3vl_2b_geobridge_hgb.sh
-```
-
-## Documents
-
-- `GeoBridge_CORE_DESIGN.md`: method boundary and paper story.
-- `GeoBridge_ENGINEERING_MANUAL.md`: server paths, training commands, and assets.
-- `GeoBridge_PROGRESS.md`: current migration and implementation status.
-- `README_STAGE2_HGB.md`: Stage2-HGB focused runbook.
-
-## Current Boundary
-
-GeoBridge remains a Qwen2.5-style codebase with Qwen3-VL compatibility added at the launcher/model-loading layer. The first Qwen3 target is:
-
-```text
-/mnt/guojh/lq/new/models/Qwen/Qwen3-VL-2B-Instruct
-```
-
-Full retraining on Qwen3 should be treated as a new Stage2 run because Qwen2.5 checkpoints are not weight-compatible with Qwen3-VL.
+- Qwen3-VL runs use early decoder fusion layers by default.
+- Qwen2.5-VL runs keep the sparse historical fusion-layer schedule.
+- Full training should set all model, cache, dataset, and output paths
+  explicitly.

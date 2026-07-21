@@ -9,8 +9,8 @@ BASE_MANIFEST_PATH=${BASE_MANIFEST_PATH:-"${BASE_CACHE_DIR}/manifest.jsonl"}
 CORR_CACHE_DIR=${CORR_CACHE_DIR:-"${PROJECT_ROOT}/cache/zenview_continuity_bank_v2_multiwindow_corrgraph_feature_knn"}
 OUTPUT_MANIFEST_PATH=${OUTPUT_MANIFEST_PATH:-"${CORR_CACHE_DIR}/manifest.jsonl"}
 PROJECTOR_CHECKPOINT_PATH=${PROJECTOR_CHECKPOINT_PATH:-"${PROJECT_ROOT}/outputs/stage1_continuity_bank_v2_multiwindow_truebatch_fix0502/best.pt"}
-MODEL_PATH=${MODEL_PATH:-"/data3/yeyuanhao/sp_re_cbp/thirdparty/models/Qwen2.5-VL-7B-Instruct"}
-GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH:-"/data3/yeyuanhao/sp_re_cbp/GeoThinker/models/VGGT-1B"}
+MODEL_PATH=${MODEL_PATH:-"models/Qwen2.5-VL-7B-Instruct"}
+GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH:-"models/VGGT-1B"}
 TMP_ROOT=${TMP_ROOT:-"${PROJECT_ROOT}/tmp/stage1_v2_corr_cache"}
 
 PYTHON_BIN=${PYTHON_BIN:-"python"}

@@ -1,4 +1,4 @@
-"""Continuity utility selector for GeoBridge Stage 1."""
+"""Continuity utility selector for SpatialFit Stage 1."""
 
 from __future__ import annotations
 

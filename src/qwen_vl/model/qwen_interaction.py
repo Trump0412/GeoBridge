@@ -794,7 +794,7 @@ class QwenZenViewContinuityBankV2(QwenZenViewVGGTGeometryBank):
 
 
 class QwenGeoBridgeHGB(QwenZenViewVGGTGeometryBank):
-    """GeoBridge Stage 2 heterogeneous competitive geometry bridge."""
+    """SpatialFit Stage 2 heterogeneous competitive geometry bridge."""
 
     def __init__(self, config, layer_idx=None, **kwargs):
         setattr(config, "vggt_bank_use_layer_embedding", False)

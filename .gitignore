@@ -233,3 +233,13 @@ weights/
 *.zip
 *.7z
 *.rar
+
+# Internal planning notes are kept locally but omitted from review releases.
+*_CORE_DESIGN.md
+*_ENGINEERING_MANUAL.md
+*_PROGRESS.md
+configs/stage2_hgb_environment_*.txt
+scripts/analysis/*
+docs/Stage2_HGB_Training_Guide.md
+scripts/analysis_parse_stage2_loss_tmp.py
+src/qwen_vl/data/__pycache__/

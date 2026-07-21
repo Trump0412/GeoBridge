@@ -1,4 +1,4 @@
-"""Activated correspondence graph for GeoBridge Stage 1."""
+"""Activated correspondence graph for SpatialFit Stage 1."""
 
 from __future__ import annotations
 

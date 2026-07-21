@@ -229,10 +229,10 @@ def main() -> None:
     parser.add_argument("--cache_root", type=str, default="")
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--vggt_model_path", type=str,
-                        default="/data3/yeyuanhao/sp_re_cbp/GeoThinker/models/VGGT-1B",
+                        default="models/VGGT-1B",
                         help="Path to VGGT-1B model for online feature extraction")
     parser.add_argument("--qwen_model_path", type=str,
-                        default="/data3/yeyuanhao/sp_re_cbp/thirdparty/models/Qwen2.5-VL-7B-Instruct",
+                        default="models/Qwen2.5-VL-7B-Instruct",
                         help="Path to Qwen2.5-VL model for image_processor (needed for prepare_image_inputs)")
     parser.add_argument("--stage1_checkpoint_path", type=str, default="",
                         help="Stage1 checkpoint to load GeoProjector weights for vggt_proj_knn")

@@ -1,4 +1,4 @@
-"""Same-position local geometry router for GeoBridge Stage 2."""
+"""Same-position local geometry router for SpatialFit Stage 2."""
 
 from __future__ import annotations
 

@@ -33,7 +33,7 @@ class ModelArguments:
     vggt_bank_d_geom: int = field(default=1024)
     vggt_bank_topk: int = field(
         default=2,
-        metadata={"help": "Top-k for generic ZenView geometry-bank router. GeoBridge HGB uses hgb_local_topk instead."},
+        metadata={"help": "Top-k for generic ZenView geometry-bank router. SpatialFit HGB uses hgb_local_topk instead."},
     )
     vggt_bank_num_layers: int = field(default=20)
     vggt_bank_fusion_layer_indices: str = field(default="")
@@ -63,7 +63,7 @@ class ModelArguments:
     hgb_use_saliency_prior: bool = field(default=True)
     hgb_local_topk: int = field(
         default=2,
-        metadata={"help": "Top-k for GeoBridge HGB local router over g11/g17/g23."},
+        metadata={"help": "Top-k for SpatialFit HGB local router over g11/g17/g23."},
     )
     hgb_corr_topk_neighbors: int = field(default=8)
     hgb_temporal_radius: int = field(default=2)

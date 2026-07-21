@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared vanilla-regime launcher for Qwen-VL GeoBridge variants.
+# Shared vanilla-regime launcher for Qwen-VL SpatialFit variants.
 # Expected env vars:
 #   PROJECT_ROOT, MODEL_PATH, GEOMETRY_ENCODER_TYPE, GEOMETRY_ENCODER_PATH,
 #   GEO_INJECT_VERSION, OUTPUT_DIR, LOG_DIR, TRAIN_LOG.
@@ -12,7 +12,7 @@ if [ -f "${PROJECT_ROOT}/configs/geobridge_paths.env" ]; then
     source "${PROJECT_ROOT}/configs/geobridge_paths.env"
 fi
 
-GEOBRIDGE_WORK_ROOT=${GEOBRIDGE_WORK_ROOT:-"/mnt/guojh/lq/new"}
+GEOBRIDGE_WORK_ROOT=${GEOBRIDGE_WORK_ROOT:-"${PROJECT_ROOT}/.local"}
 CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"${GEOBRIDGE_WORK_ROOT}/models"}
 MODEL_PATH=${MODEL_PATH:-"${GEOBRIDGE_STAGE2_MODEL_PATH:-${QWEN25VL_7B_PATH:-}}"}
 GEOMETRY_ENCODER_TYPE=${GEOMETRY_ENCODER_TYPE:-"vggt"}
@@ -67,7 +67,7 @@ resolve_geometry_encoder_path() {
 
     if [ "${GEOMETRY_ENCODER_TYPE}" = "da3" ]; then
         for path in \
-            "/data3/yeyuanhao/checkpoints/DA3-GIANT" \
+            "models/DA3-GIANT" \
             "${CHECKPOINT_ROOT}/DA3-GIANT" \
             "${PROJECT_ROOT}/checkpoints/DA3-GIANT"; do
             if [ -d "${path}" ]; then
@@ -75,7 +75,7 @@ resolve_geometry_encoder_path() {
                 return 0
             fi
         done
-        echo "/data3/yeyuanhao/checkpoints/DA3-GIANT"
+        echo "models/DA3-GIANT"
         return 0
     fi
 
@@ -83,11 +83,11 @@ resolve_geometry_encoder_path() {
         "${VGGT_1B_PATH:-}" \
         "${GEOBRIDGE_WORK_ROOT}/models/VGGT-1B" \
         "${GEOBRIDGE_WORK_ROOT}/weights/base_models/VGGT-1B" \
-        "/data3/yeyuanhao/checkpoints/VGGT-1B" \
+        "models/VGGT-1B" \
         "${CHECKPOINT_ROOT}/VGGT-1B" \
         "${PROJECT_ROOT}/checkpoints/VGGT-1B" \
         "${PROJECT_ROOT}/models/VGGT-1B" \
-        "/data3/yeyuanhao/sp_re_cbp/TRASE/models/VGGT-1B"; do
+        "models/VGGT-1B"; do
         if [ -d "${path}" ]; then
             echo "${path}"
             return 0
@@ -111,7 +111,9 @@ if [ -z "${TORCHRUN_BIN}" ]; then
 fi
 if [ -z "${TORCHRUN_BIN}" ]; then
     for candidate in \
-        "/data3/yeyuanhao/.conda/envs/geothinker/bin/torchrun" \
+        "${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker_20260610/bin/torchrun" \
+        "${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker/bin/torchrun" \
+        "torchrun" \
         "${HOME}/.conda/envs/geothinker/bin/torchrun"; do
         if [ -x "${candidate}" ]; then
             TORCHRUN_BIN="${candidate}"

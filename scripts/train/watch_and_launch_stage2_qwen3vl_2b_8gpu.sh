@@ -7,25 +7,32 @@ if [[ -f "${PROJECT_ROOT}/configs/geobridge_paths.env" ]]; then
   source "${PROJECT_ROOT}/configs/geobridge_paths.env"
 fi
 
-GEOBRIDGE_WORK_ROOT=${GEOBRIDGE_WORK_ROOT:-/mnt/guojh/lq/new}
-GPU_LIST=${GPU_LIST:-"0,1,2,3,4,5,6,7"}
+GEOBRIDGE_WORK_ROOT=${GEOBRIDGE_WORK_ROOT:-"${PROJECT_ROOT}/.local"}
+default_gpu_list() {
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi --query-gpu=index --format=csv,noheader | paste -sd, -
+  else
+    echo "0"
+  fi
+}
+GPU_LIST=${GPU_LIST:-"$(default_gpu_list)"}
 CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-"${GPU_LIST}"}
-NPROC_PER_NODE=${NPROC_PER_NODE:-8}
+NPROC_PER_NODE=${NPROC_PER_NODE:-$(( $(awk -F, '{print NF}' <<< "${GPU_LIST}") ))}
 PER_DEVICE_BATCH_SIZE=${PER_DEVICE_BATCH_SIZE:-16}
 TOTAL_BATCH_SIZE=${TOTAL_BATCH_SIZE:-$((NPROC_PER_NODE * PER_DEVICE_BATCH_SIZE))}
 GPU_MEM_USED_MAX_MB=${GPU_MEM_USED_MAX_MB:-2048}
 CHECK_INTERVAL_SECONDS=${CHECK_INTERVAL_SECONDS:-600}
 
 RUN_ID=${RUN_ID:-"qwen3vl2b_stage2_hgb_7data_b16_8gpu_$(date +%Y%m%d_%H%M%S)"}
-OUTPUT_DIR=${OUTPUT_DIR:-"${GEOBRIDGE_WORK_ROOT}/checkpoints/GeoBridge/${RUN_ID}"}
+OUTPUT_DIR=${OUTPUT_DIR:-"${GEOBRIDGE_WORK_ROOT}/checkpoints/spatialfit/${RUN_ID}"}
 LOG_DIR=${LOG_DIR:-"${GEOBRIDGE_WORK_ROOT}/logs/${RUN_ID}"}
 TRAIN_LOG=${TRAIN_LOG:-"${LOG_DIR}/train.log"}
 SUPERVISOR_LOG=${SUPERVISOR_LOG:-"${LOG_DIR}/supervisor.log"}
 
-MODEL_PATH=${MODEL_PATH:-"${QWEN3VL_2B_PATH:-${GEOBRIDGE_WORK_ROOT}/models/Qwen/Qwen3-VL-2B-Instruct}"}
-GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH:-"${VGGT_1B_PATH:-${GEOBRIDGE_WORK_ROOT}/weights/base_models/VGGT-1B}"}
+MODEL_PATH=${MODEL_PATH:-"${QWEN3VL_2B_PATH:-${GEOBRIDGE_WORK_ROOT}/models/Qwen3-VL-2B-Instruct}"}
+GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH:-"${VGGT_1B_PATH:-${GEOBRIDGE_WORK_ROOT}/models/VGGT-1B}"}
 STAGE1_CHECKPOINT_PATH=${STAGE1_CHECKPOINT_PATH:-"${STAGE1_FCP_CKPT:-${GEOBRIDGE_WORK_ROOT}/weights/stage1/checkpoint-9000.pt}"}
-CACHE_DIR=${CACHE_DIR:-"${STAGE1_WINDOW_READY_CACHE:-${GEOBRIDGE_WORK_ROOT}/cache/GeoBridge/stage1_geobridge_window_ready_joint_fp16_g11}"}
+CACHE_DIR=${CACHE_DIR:-"${STAGE1_WINDOW_READY_CACHE:-${GEOBRIDGE_WORK_ROOT}/cache/spatialfit/stage1_geobridge_window_ready_joint_fp16_g11}"}
 MANIFEST_PATH=${MANIFEST_PATH:-"${CACHE_DIR}/manifest.jsonl"}
 DATASETS=${DATASETS:-"${STAGE2_DATASETS:-llava_hound_64k,spar_234k,vsi_590k,vlm3r_vsi_205k,vlm3r_vst_132k,mindcube_10k,joyai_openspatial_100k}"}
 LEGACY_GEOBRIDGE_DATA_ROOT=${LEGACY_GEOBRIDGE_DATA_ROOT:-"${GEOBRIDGE_WORK_ROOT}/code/spatial4nips/data"}
@@ -51,7 +58,7 @@ preflight() {
   [[ -d "${MODEL_PATH}" ]] || { log "missing MODEL_PATH=${MODEL_PATH}"; exit 1; }
   [[ -d "${GEOMETRY_ENCODER_PATH}" ]] || { log "missing GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH}"; exit 1; }
   [[ -f "${STAGE1_CHECKPOINT_PATH}" ]] || { log "missing STAGE1_CHECKPOINT_PATH=${STAGE1_CHECKPOINT_PATH}"; exit 1; }
-  [[ -x "${PYTHON_BIN:-}" || -x "${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker/bin/python" ]] || \
+  [[ -x "${PYTHON_BIN:-}" || -x "${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker_20260610/bin/python" || -x "${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker/bin/python" ]] || \
     { log "missing geothinker python; set PYTHON_BIN"; exit 1; }
 
   local train_root="${PROJECT_ROOT}/data/train"
@@ -123,8 +130,8 @@ launch_stage2() {
   export TEMP=${TMPDIR}
   mkdir -p "${TMPDIR}"
 
-  PYTHON_BIN=${PYTHON_BIN:-"${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker/bin/python"}
-  TORCHRUN_BIN=${TORCHRUN_BIN:-"${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker/bin/torchrun"}
+  PYTHON_BIN=${PYTHON_BIN:-"${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker_20260610/bin/python"}
+  TORCHRUN_BIN=${TORCHRUN_BIN:-"${GEOBRIDGE_WORK_ROOT}/conda/envs/geothinker_20260610/bin/torchrun"}
   export PATH="$(dirname "${PYTHON_BIN}"):${PATH}"
   export PYTHONPATH="${PROJECT_ROOT}/src:${PYTHONPATH:-}"
   export TORCHRUN_BIN

@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_ROOT=${PROJECT_ROOT:-"$(cd "${SCRIPT_DIR}/../.." && pwd)"}
-MODEL_PATH=${MODEL_PATH:-"/data3/yeyuanhao/sp_re_cbp/thirdparty/models/Qwen2.5-VL-7B-Instruct"}
-GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH:-"/data3/yeyuanhao/sp_re_cbp/GeoThinker/models/VGGT-1B"}
+MODEL_PATH=${MODEL_PATH:-"models/Qwen2.5-VL-7B-Instruct"}
+GEOMETRY_ENCODER_PATH=${GEOMETRY_ENCODER_PATH:-"models/VGGT-1B"}
 
 CORR_CACHE_DIR=${CORR_CACHE_DIR:-"${PROJECT_ROOT}/cache/zenview_continuity_bank_v2_multiwindow_corrgraph_feature_knn"}
 MANIFEST_PATH=${MANIFEST_PATH:-"${CORR_CACHE_DIR}/manifest.jsonl"}
@@ -105,7 +105,7 @@ if [ -z "${TORCHRUN_BIN}" ]; then
 fi
 if [ -z "${TORCHRUN_BIN}" ]; then
   for candidate in \
-    "/data3/yeyuanhao/.conda/envs/geothinker/bin/torchrun" \
+    "torchrun" \
     "${HOME}/.conda/envs/geothinker/bin/torchrun"; do
     if [ -x "${candidate}" ]; then
       TORCHRUN_BIN="${candidate}"

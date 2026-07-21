@@ -2,7 +2,7 @@ import os
 from setuptools import setup, find_packages
 
 setup(
-    name="geobridge",
+    name="spatialfit",
     version="0.1.0",
     packages=find_packages("src"),
     package_dir={"": "src"},
@@ -65,8 +65,8 @@ setup(
         "scipy==1.16.0",
         "terminaltables",
     ],
-    author="GeoBridge contributors",
-    description="GeoBridge: Stage1 FCP and Stage2 HGB code for geometry-aware Qwen-VL spatial reasoning.",
+    author="SpatialFit contributors",
+    description="SpatialFit: geometry-aware Qwen-VL training code for spatial reasoning.",
     long_description=open("README.md").read() if os.path.exists("README.md") else "",
     long_description_content_type="text/markdown",
     classifiers=[

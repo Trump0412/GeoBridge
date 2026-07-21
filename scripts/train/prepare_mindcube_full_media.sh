@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=${REPO_ROOT:-"$(cd "${SCRIPT_DIR}/../.." && pwd)"}
-GEOBRIDGE_ROOT=${GEOBRIDGE_ROOT:-/mnt/guojh/lq/new}
+GEOBRIDGE_ROOT=${GEOBRIDGE_ROOT:-${PROJECT_ROOT}/.local}
 MINDCUBE_SOURCE_DIR=${MINDCUBE_SOURCE_DIR:-"${GEOBRIDGE_ROOT}/datasets/MindCube"}
 MINDCUBE_URL=${MINDCUBE_URL:-"https://hf-mirror.com/datasets/MLL-Lab/MindCube/resolve/main/data.zip"}
 DOWNLOAD_DIR=${DOWNLOAD_DIR:-"${REPO_ROOT}/tmp/mindcube_download"}

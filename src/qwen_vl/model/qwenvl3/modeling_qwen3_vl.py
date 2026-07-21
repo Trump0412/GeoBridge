@@ -1400,11 +1400,11 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
             num_images = self._geometry_input_num_images(geometry_inputs)
             if num_images > 0:
                 if image_grid_thw is None:
-                    raise ValueError("image_grid_thw is required for batched GeoBridge HGB geometry inputs.")
+                    raise ValueError("image_grid_thw is required for batched SpatialFit HGB geometry inputs.")
                 sample_grid = image_grid_thw[grid_cursor : grid_cursor + num_images]
                 if sample_grid.shape[0] != num_images:
                     raise ValueError(
-                        f"Unable to split image_grid_thw for GeoBridge HGB: expected {num_images} rows, "
+                        f"Unable to split image_grid_thw for SpatialFit HGB: expected {num_images} rows, "
                         f"got {sample_grid.shape[0]} at cursor {grid_cursor}."
                     )
             else:
@@ -1414,7 +1414,7 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
             sample_embeds = image_embeds[embed_cursor : embed_cursor + token_count]
             if sample_embeds.shape[0] != token_count:
                 raise ValueError(
-                    f"Unable to split image embeddings for GeoBridge HGB: expected {token_count} tokens, "
+                    f"Unable to split image embeddings for SpatialFit HGB: expected {token_count} tokens, "
                     f"got {sample_embeds.shape[0]} at cursor {embed_cursor}."
                 )
             sample_image_embeds.append(sample_embeds)
@@ -1424,12 +1424,12 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
 
         if image_grid_thw is not None and grid_cursor != image_grid_thw.shape[0]:
             raise ValueError(
-                f"Unused image_grid_thw rows while splitting GeoBridge HGB batch: "
+                f"Unused image_grid_thw rows while splitting SpatialFit HGB batch: "
                 f"used={grid_cursor} total={image_grid_thw.shape[0]}."
             )
         if embed_cursor != image_embeds.shape[0]:
             raise ValueError(
-                f"Unused image embeddings while splitting GeoBridge HGB batch: "
+                f"Unused image embeddings while splitting SpatialFit HGB batch: "
                 f"used={embed_cursor} total={image_embeds.shape[0]}."
             )
         return sample_image_embeds, sample_image_grid_thw
@@ -1443,7 +1443,7 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
             if extracted is None or projected is None:
                 if not isinstance(geometry_inputs_for_align, torch.Tensor) or geometry_inputs_for_align.shape[0] <= 0:
                     raise ValueError(
-                        "GeoBridge / ZenView geometry cache is incomplete and no online geometry inputs are available "
+                        "SpatialFit geometry cache is incomplete and no online geometry inputs are available "
                         f"(reason={cache_fallback_reason})."
                     )
                 self._warn_geometry_cache_fallback(cache_fallback_reason or "missing_required_bank_layers")

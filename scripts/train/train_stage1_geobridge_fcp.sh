@@ -15,7 +15,7 @@ GEOMETRY_CACHE_REQUIRED=${GEOMETRY_CACHE_REQUIRED:-"True"}
 ONLINE_FALLBACK=${ONLINE_FALLBACK:-"False"}
 FREEZE_GEO_PROJECTOR=${FREEZE_GEO_PROJECTOR:-"True"}
 
-# GeoBridge Stage1 final defaults: keep MGC + contrastive + selector as the main story.
+# SpatialFit Stage 1 final defaults: keep MGC + contrastive + selector as the main story.
 CORR_NCE_WEIGHT=${CORR_NCE_WEIGHT:-0.30}
 ATTN_WEIGHT=${ATTN_WEIGHT:-0.00}
 LOV_GLOBAL_WEIGHT=${LOV_GLOBAL_WEIGHT:-0.00}

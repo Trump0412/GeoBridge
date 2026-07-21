@@ -1,4 +1,4 @@
-"""Competitive none/local/continuity gate for GeoBridge Stage 2."""
+"""Competitive none/local/continuity gate for SpatialFit Stage 2."""
 
 from __future__ import annotations
 
